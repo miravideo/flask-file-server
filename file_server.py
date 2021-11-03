@@ -23,11 +23,13 @@ icontypes = {'fa-music': 'm4a,mp3,oga,ogg,webma,wav', 'fa-archive': '7z,zip,rar,
 def size_fmt(size):
     return humanize.naturalsize(size)
 
+
 @app.template_filter('time_fmt')
 def time_desc(timestamp):
     mdate = datetime.fromtimestamp(timestamp)
     str = mdate.strftime('%Y-%m-%d %H:%M:%S')
     return str
+
 
 @app.template_filter('data_fmt')
 def data_fmt(filename):
@@ -37,6 +39,7 @@ def data_fmt(filename):
             t = type
     return t
 
+
 @app.template_filter('icon_fmt')
 def icon_fmt(filename):
     i = 'fa-file-o'
@@ -45,10 +48,12 @@ def icon_fmt(filename):
             i = icon
     return i
 
+
 @app.template_filter('humanize')
 def time_humanize(timestamp):
     mdate = datetime.utcfromtimestamp(timestamp)
     return humanize.naturaltime(mdate)
+
 
 def get_type(mode):
     if stat.S_ISDIR(mode) or stat.S_ISLNK(mode):
@@ -57,47 +62,6 @@ def get_type(mode):
         type = 'file'
     return type
 
-def partial_response(path, start, end=None):
-    file_size = os.path.getsize(path)
-
-    if end is None:
-        end = file_size - start - 1
-    end = min(end, file_size - 1)
-    length = end - start + 1
-
-    with open(path, 'rb') as fd:
-        fd.seek(start)
-        bytes = fd.read(length)
-    assert len(bytes) == length
-
-    response = Response(
-        bytes,
-        206,
-        mimetype=mimetypes.guess_type(path)[0],
-        direct_passthrough=True,
-    )
-    response.headers.add(
-        'Content-Range', 'bytes {0}-{1}/{2}'.format(
-            start, end, file_size,
-        ),
-    )
-    response.headers.add(
-        'Accept-Ranges', 'bytes'
-    )
-    return response
-
-def get_range(request):
-    range = request.headers.get('Range')
-    m = re.match('bytes=(?P<start>\d+)-(?P<end>\d+)?', range)
-    if m:
-        start = m.group('start')
-        end = m.group('end')
-        start = int(start)
-        if end is not None:
-            end = int(end)
-        return start, end
-    else:
-        return 0, None
 
 class PathView(MethodView):
     def get(self, p=''):
@@ -129,16 +93,11 @@ class PathView(MethodView):
             res = make_response(page, 200)
             res.set_cookie('hide-dotfile', hide_dotfile, max_age=16070400)
         elif os.path.isfile(path):
-            if 'Range' in request.headers:
-                start, end = get_range(request)
-                res = partial_response(path, start, end)
-            else:
-                res = send_file(path)
-                res.headers.add('Content-Disposition', 'attachment')
+            res = send_file(path, conditional=True)
         else:
             res = make_response('Not found', 404)
         return res
-    
+
     def put(self, p=''):
         if request.cookies.get('auth_cookie') == key:
             path = os.path.join(root, p)
@@ -149,6 +108,7 @@ class PathView(MethodView):
             if os.path.isdir(dir_path):
                 try:
                     filename = secure_filename(os.path.basename(path))
+                    filename = os.path.basename(path)
                     with open(os.path.join(dir_path, filename), 'wb') as f:
                         f.write(request.stream.read())
                 except Exception as e:
@@ -163,7 +123,7 @@ class PathView(MethodView):
             res = make_response(json.JSONEncoder().encode(info), 201)
             res.headers.add('Content-type', 'application/json')
         else:
-            info = {} 
+            info = {}
             info['status'] = 'error'
             info['msg'] = 'Authentication failed'
             res = make_response(json.JSONEncoder().encode(info), 401)
@@ -181,6 +141,7 @@ class PathView(MethodView):
                 for file in files:
                     try:
                         filename = secure_filename(file.filename)
+                        filename = file.filename
                         file.save(os.path.join(path, filename))
                     except Exception as e:
                         info['status'] = 'error'
@@ -194,13 +155,13 @@ class PathView(MethodView):
             res = make_response(json.JSONEncoder().encode(info), 200)
             res.headers.add('Content-type', 'application/json')
         else:
-            info = {} 
+            info = {}
             info['status'] = 'error'
             info['msg'] = 'Authentication failed'
             res = make_response(json.JSONEncoder().encode(info), 401)
             res.headers.add('Content-type', 'application/json')
         return res
-    
+
     def delete(self, p=''):
         if request.cookies.get('auth_cookie') == key:
             path = os.path.join(root, p)
@@ -211,6 +172,7 @@ class PathView(MethodView):
             if os.path.isdir(dir_path):
                 try:
                     filename = secure_filename(os.path.basename(path))
+                    filename = os.path.basename(path)
                     os.remove(os.path.join(dir_path, filename))
                     os.rmdir(dir_path)
                 except Exception as e:
@@ -231,6 +193,7 @@ class PathView(MethodView):
             res = make_response(json.JSONEncoder().encode(info), 401)
             res.headers.add('Content-type', 'application/json')
         return res
+
 
 path_view = PathView.as_view('path_view')
 app.add_url_rule('/', view_func=path_view)
